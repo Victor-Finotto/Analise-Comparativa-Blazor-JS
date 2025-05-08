@@ -1,0 +1,4 @@
+wwwroot\css\app.css
+wwwroot\data\produtos.json
+wwwroot\icon-192.png
+wwwroot\index.html

@@ -1,0 +1,230 @@
+﻿@page "/index"
+@inject HttpClient Http
+
+<h1>Catálogo de Produtos</h1>
+
+<div class="filtros">
+    <div>
+        <label for="filtro-nome">Nome:</label>
+        <input type="text" id="filtro-nome" @bind="filtroNome" class="form-control" @oninput="OnFiltroAlterado" />
+    </div>
+
+    <div>
+        <label for="filtro-categoria">Categoria:</label>
+        <input type="text" id="filtro-categoria" @bind="filtroCategoria" class="form-control" @oninput="OnFiltroAlterado" />
+    </div>
+
+    <div>
+        <label for="filtro-status">Status:</label>
+        <select id="filtro-status" @bind="filtroStatus" class="form-control">
+            <option value="">Todos</option>
+            <option value="Ativo">Ativo</option>
+            <option value="Inativo">Inativo</option>
+        </select>
+    </div>
+
+    <div>
+        <label for="filtro-preco-min">Preço Mínimo:</label>
+        <input type="number" id="filtro-preco-min" @bind="filtroPrecoMin" class="form-control" />
+    </div>
+
+    <div>
+        <label for="filtro-preco-max">Preço Máximo:</label>
+        <input type="number" id="filtro-preco-max" @bind="filtroPrecoMax" class="form-control" />
+    </div>
+
+    <div>
+        <button id="btn-filtrar" class="btn btn-primary" @onclick="AplicarFiltros">Filtrar</button>
+    </div>
+</div>
+
+<section id="acoes">
+    <button @onclick="AtualizarSelecionados" class="btn btn-warning">Atualizar Selecionados</button>
+    <button @onclick="ExcluirSelecionados" class="btn btn-danger">Excluir Selecionados</button>
+</section>
+
+<!-- Formulário de Atualização -->
+<section id="form-atualizacao-section" style="display: @(mostrarFormularioAtualizacao ? "block" : "none")">
+    <h3>Atualizar Dados dos Produtos Selecionados</h3>
+
+    <div>
+        <label>Nome:</label>
+        <input type="text" id="novo-nome" @bind="novoNome" class="form-control" />
+    </div>
+
+    <div>
+        <label>Categoria:</label>
+        <input type="text" id="nova-categoria" @bind="novaCategoria" class="form-control" />
+    </div>
+
+    <div>
+        <label>Preço:</label>
+        <input type="number" id="novo-preco" @bind="novoPreco" class="form-control" step="0.01" />
+    </div>
+
+    <div>
+        <label>Status:</label>
+        <select id="novo-status" @bind="novoStatus" class="form-control">
+            <option value="">-- Manter Atual --</option>
+            <option value="Ativo">Ativo</option>
+            <option value="Inativo">Inativo</option>
+        </select>
+    </div>
+
+    <div class="botoes-atualizacao">
+        <button @onclick="ConfirmarAtualizacao" class="btn btn-success">Confirmar</button>
+        <button @onclick="CancelarAtualizacao" class="btn btn-secondary">Cancelar</button>
+    </div>
+</section>
+
+<section id="metricas">
+    <span id="totalItens">Total de itens: @produtosFiltrados.Count</span>
+    <span id="tempoResposta"> | Tempo de resposta: @tempoResposta ms</span>
+    <span id="tempoRenderizacao"> | Tempo de renderização: @tempoRenderizacao ms</span>
+    <span id="tempoFiltro"> | Tempo de filtro: @tempoFiltro ms</span>
+    <span id="tempoExclusao"> | Tempo de exclusão: @tempoExclusao ms</span>
+    <span id="tempoAtualizacao"> | Tempo de atualização: @tempoAtualizacao ms</span>
+</section>
+
+<table id="tabela">
+    <thead>
+        <tr>
+            <th>
+                <input type="checkbox" @onchange="SelecionarTodos" />
+            </th>
+            <th>ID</th>
+            <th>Nome</th>
+            <th>Categoria</th>
+            <th>Preço</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var produto in produtosFiltrados)
+        {
+            <tr>
+                <td>
+                    <input type="checkbox" @bind="produto.Selecionado" />
+                </td>
+                <td>@produto.Id</td>
+                <td>@produto.Nome</td>
+                <td>@produto.Categoria</td>
+                <td>@produto.Preco.ToString("C")</td>
+                <td>@produto.Status</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<Produto> produtos = new();
+    private List<Produto> produtosFiltrados = new();
+    private List<Produto> produtosSelecionados => produtosFiltrados.Where(p => p.Selecionado).ToList();
+
+    private string filtroNome = "";
+    private string filtroCategoria = "";
+    private string filtroStatus = "";
+    private decimal? filtroPrecoMin;
+    private decimal? filtroPrecoMax;
+
+    private string novoNome;
+    private string novaCategoria;
+    private decimal? novoPreco;
+    private string novoStatus;
+    private bool mostrarFormularioAtualizacao = false;
+
+    private long tempoResposta;
+    private long tempoFiltro;
+    private long tempoRenderizacao;
+    private long tempoExclusao;
+    private long tempoAtualizacao;
+    private CancellationTokenSource filtroCancellationTokenSource;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var sw = Stopwatch.StartNew();
+        produtos = await Http.GetFromJsonAsync<List<Produto>>("data/produtos.json") ?? new();
+        produtosFiltrados = produtos;
+        sw.Stop();
+        tempoResposta = sw.ElapsedMilliseconds;
+    }
+
+    private async Task OnFiltroAlterado()
+    {
+        var sw = Stopwatch.StartNew();
+        filtroCancellationTokenSource?.Cancel();
+        filtroCancellationTokenSource = new CancellationTokenSource();
+        await Task.Delay(500, filtroCancellationTokenSource.Token);
+        AplicarFiltros();
+        sw.Stop();
+        tempoFiltro = sw.ElapsedMilliseconds;
+    }
+
+    private void AplicarFiltros()
+    {
+        var swFiltro = Stopwatch.StartNew();
+        produtosFiltrados = produtos
+            .Where(p =>
+                (string.IsNullOrWhiteSpace(filtroNome) || p.Nome.Contains(filtroNome, StringComparison.OrdinalIgnoreCase)) &&
+                (string.IsNullOrWhiteSpace(filtroCategoria) || p.Categoria.Contains(filtroCategoria, StringComparison.OrdinalIgnoreCase)) &&
+                (string.IsNullOrWhiteSpace(filtroStatus) || p.Status.Equals(filtroStatus, StringComparison.OrdinalIgnoreCase)) &&
+                (!filtroPrecoMin.HasValue || p.Preco >= filtroPrecoMin) &&
+                (!filtroPrecoMax.HasValue || p.Preco <= filtroPrecoMax)
+            )
+            .ToList();
+        swFiltro.Stop();
+        tempoFiltro = swFiltro.ElapsedMilliseconds;
+
+        var swRender = Stopwatch.StartNew();
+        StateHasChanged();  // Evitar múltiplas chamadas durante a filtragem
+        swRender.Stop();
+        tempoRenderizacao = swRender.ElapsedMilliseconds;
+    }
+
+    private void AtualizarSelecionados()
+    {
+        var swAtualizacao = Stopwatch.StartNew();
+        mostrarFormularioAtualizacao = true;
+        swAtualizacao.Stop();
+        tempoAtualizacao = swAtualizacao.ElapsedMilliseconds;
+    }
+
+    private void ExcluirSelecionados()
+    {
+        var swExclusao = Stopwatch.StartNew();
+        var idsSelecionados = produtosSelecionados.Select(p => p.Id).ToList();
+        produtos = produtos.Where(p => !idsSelecionados.Contains(p.Id)).ToList();
+        produtosFiltrados = produtosFiltrados.Where(p => !idsSelecionados.Contains(p.Id)).ToList();
+        swExclusao.Stop();
+        tempoExclusao = swExclusao.ElapsedMilliseconds;
+    }
+
+    private void ConfirmarAtualizacao()
+    {
+        var swAtualizacao = Stopwatch.StartNew();
+        foreach (var produto in produtosSelecionados)
+        {
+            if (!string.IsNullOrWhiteSpace(novoNome)) produto.Nome = novoNome;
+            if (!string.IsNullOrWhiteSpace(novaCategoria)) produto.Categoria = novaCategoria;
+            if (novoPreco.HasValue) produto.Preco = novoPreco.Value;
+            if (!string.IsNullOrWhiteSpace(novoStatus)) produto.Status = novoStatus;
+        }
+        mostrarFormularioAtualizacao = false;
+        swAtualizacao.Stop();
+        tempoAtualizacao = swAtualizacao.ElapsedMilliseconds;
+    }
+
+    private void CancelarAtualizacao()
+    {
+        mostrarFormularioAtualizacao = false;
+    }
+
+    private void SelecionarTodos(ChangeEventArgs e)
+    {
+        bool isChecked = e.Value is bool value && value;
+        foreach (var p in produtosFiltrados)
+        {
+            p.Selecionado = isChecked;
+        }
+    }
+}
